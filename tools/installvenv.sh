@@ -30,5 +30,5 @@ python2 -m virtualenv $ENV_DIR
 # python3 -m venv $ENV_DIR
 
 
-$SCRIPT_DIR/startvenv.sh
+$SCRIPT_DIR/startvenv.sh "$SCRIPT_DIR/../src/install-all.sh"
 

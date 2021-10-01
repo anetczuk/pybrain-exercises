@@ -37,4 +37,4 @@ $SCRIPT_DIR/install-pybrain.sh
 pip2 install -r $SCRIPT_DIR/requirements.txt
 
 
-echo -e "\ninstallation done"
+echo -e "\ninstallation done\n"
