@@ -1,0 +1,13 @@
+scipy==0.19.1
+numpy==1.8.2
+matplotlib==2.2.5
+
+## for ode environments
+pyode
+
+## for ode environemnts (for viewing)
+pyopengl
+pillow
+
+## does not have ode envoronment model files (will be installed from repo)
+# pybrain

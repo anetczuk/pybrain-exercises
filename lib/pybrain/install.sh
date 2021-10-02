@@ -9,6 +9,10 @@ SCRIPT_DIR=$(cd ${0%/*} && pwd -P)
 cd "$SCRIPT_DIR"
 
 
+## install requirements
+pip2 install -r $SCRIPT_DIR/requirements.txt
+
+
 SRC_ARCHIVE=pybrain-master.zip
 
 ## if [ "$#" -ge 1 ]; then
