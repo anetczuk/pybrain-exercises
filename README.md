@@ -25,7 +25,7 @@ For all reasons pointed above user is encouraged to use virtual environment. Con
 
 Script alongside the environemnt installs proper *pybrain* and all it's dependencies stated in previous paragraph.
 
-Starting environemt after installation can be done by execution of script `tools/startvenv.sh`. 
+Starting environment after installation can be done by execution of script `tools/startvenv.sh`. 
 
 
 ## Reinforcement learning environments preview
