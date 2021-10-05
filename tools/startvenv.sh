@@ -18,7 +18,7 @@ if [ ! -z "$START_SCRIPT" ]; then
 fi
 
 
-tmpfile=$(mktemp start.venv.XXXXXX.sh --tmpdir)
+tmpfile=$(mktemp venv.activate.XXXXXX.sh --tmpdir)
 
 cat > $tmpfile <<EOL
 source $VENV_DIR/venv/bin/activate
@@ -36,3 +36,6 @@ EOL
 echo "Starting virtual env"
 
 bash -i <<< "source $tmpfile"
+
+
+rm $tmpfile
