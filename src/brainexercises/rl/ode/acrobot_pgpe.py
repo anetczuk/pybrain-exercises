@@ -15,6 +15,7 @@ import os
 from datetime import datetime
 import argparse
 import pickle
+import time
 
 # default backend GtkAgg does not plot properly on Ubuntu 8.04
 import matplotlib
@@ -47,6 +48,21 @@ TMP_DIR    = os.path.abspath( os.path.join( SRC_DIR, "..", "tmp" ) )
 ## =========================================================================
 
 
+def process_events():
+    ### code taken from "matplotlib.pyplot.pause()"
+    interval = 0.001
+    manager = plt._pylab_helpers.Gcf.get_active()
+    if manager is not None:
+        canvas = manager.canvas
+        if canvas.figure.stale:
+            canvas.draw_idle()
+            ## 'show()' causes plot windows to blink/gain focus
+#         show(block=False)
+        canvas.start_event_loop(interval)
+    else:
+        time.sleep(interval)
+
+
 def save_data( data, output_file ):
     outPath = output_file
     if outPath is None:
@@ -60,61 +76,31 @@ def save_data( data, output_file ):
 #     numpy.savetxt( outPath, data )
 
 
-def save_task( task, output_file ):
-    oldEv = task.env
-    task.env = None
-    save_data( task, output_file )
-    task.env = oldEv
-
-
-def save_learner( learner, output_file ):
-    oldEv = learner._BlackBoxOptimizer__evaluator
-    learner._BlackBoxOptimizer__evaluator = None
-    save_data( learner, output_file )
-    learner._BlackBoxOptimizer__evaluator = oldEv
-
-
-def save_params( nework, learner, task, output_file ):
-#     data = {"network": nework}
-#     save_data( data, output_file )
-
+def save_params( network, learner, task, experiment, output_file ):
     taskEnv = task.env
     task.env = None
 
     learnEv = learner._BlackBoxOptimizer__evaluator
-    learner._BlackBoxOptimizer__evaluator = None
+    learner._BlackBoxOptimizer__evaluator = None            ## task
      
-    data = { "network": nework, "learner": learner, "task": task }
+    data = { "experiment": experiment }
     save_data( data, output_file )
      
     learner._BlackBoxOptimizer__evaluator = learnEv
     task.env = taskEnv
 
 
-## ===========================================================================
-
-
-## batch -- number of samples per gradient estimate (was: 20; more here due to stochastic setting)
-def main( seed=None, steps=200, batch=5, bias_unit=True, inner_layers=[], alpha=0.1, use_renderer=False, learn=True,
-          input_file=None, output_file=None ):
-    start_time = datetime.now()
-    
-    usePlots = True
-    # usePlots = False
-    
-    ## setting random seed
-    if seed is None:
-        seed = numpy.random.randint( 0, sys.maxint )
-    numpy.random.seed( seed )
-    print "random seed:", seed
-     
+def load_input_data( input_file ):
     load_data = {}
     if input_file is not None:
         print "loading data from:", input_file
         if os.path.isfile(input_file):
             with open( input_file, 'rb' ) as fp:
                 load_data = pickle.load( fp )
-    
+    return load_data
+
+
+def create_environment( use_renderer, learn, load_data, inner_layers, bias_unit, batch, alpha ):
     ## create task
     env = AcrobotEnvironment( renderer=use_renderer )
     if learn:
@@ -124,35 +110,19 @@ def main( seed=None, steps=200, batch=5, bias_unit=True, inner_layers=[], alpha=
     ## slower rendering
     env.dt = 0.019
     
-    task = load_data.get("task")
-    if task is None:
-        task = GradualRewardTask(env)
-    else:
-        task.env = env
+    task = GradualRewardTask(env)
     
     ## create controller network
-    net = load_data.get("network")
-    if net is None:
-        layers = [ task.outdim ] + inner_layers + [ task.indim ]
-        net = buildNetwork( *layers, bias=bias_unit, outputbias=bias_unit,
-                            hiddenclass=TanhLayer, outclass=TanhLayer )
+    layers = [ task.outdim ] + inner_layers + [ task.indim ]
+    net = buildNetwork( *layers, bias=bias_unit, outputbias=bias_unit,
+                        hiddenclass=TanhLayer, outclass=TanhLayer )
 
-    biasLayer = bool( net["bias"] != None )
-    layersDim = []    
-    for layer in net.modulesSorted:
-        layersDim.append( layer.dim )
-    if biasLayer:
-        layersDim.pop( 0 )
-
-    print "network:\n", net
-    print "network layers:", layersDim
-    print "network params size: %s" % len(net.params)
-    
-    ## create agent
-    agent = None
-    if learn:
-        learner = load_data.get("learner")
-        if learner is None:
+    # create experiment
+    experiment = load_data.get("experiment")
+    if experiment is None:
+        ## create agent
+        learner = None
+        if learn:
             learner = PGPE( storeAllEvaluations = True )
         #     learner = FiniteDifferences( storeAllEvaluations = True )
             learner.batchSize = batch
@@ -164,62 +134,78 @@ def main( seed=None, steps=200, batch=5, bias_unit=True, inner_layers=[], alpha=
                 learner.learningRate = alpha
         # #         learner.momentum = 0.9
         #         learner.momentum = 0.01
+            
+            print "learning params:", learner.rprop, learner.learningRate, learner.momentum
+            
+            agent = OptimizationAgent(net, learner)
+        else:
+            agent = LearningAgent(net, None)
         
-        print "learning params:", learner.rprop, learner.learningRate, learner.momentum
+        experiment = EpisodicExperiment(task, agent)
         
-        agent = OptimizationAgent(net, learner)
     else:
-        agent = LearningAgent(net, None)
+        learner = experiment.optimizer
+        net._setParameters( learner._initEvaluable )
+        agent = OptimizationAgent(net, learner)
 
-    # create experiment
-    experiment = EpisodicExperiment(task, agent)
+    return (env, task, net, learner, agent, experiment)
+
+
+## ===========================================================================
+
+
+usePlots = True
+# usePlots = False
+
+episodes = 0
+step = 0
+    
+    
+## batch -- number of samples per gradient estimate (was: 20; more here due to stochastic setting)
+def main( seed=None, steps=200, batch=5, bias_unit=True, inner_layers=[], alpha=0.1, use_renderer=False, learn=True,
+          input_file=None, output_file=None ):
+    
+    start_time = datetime.now()
+    
+    ## setting random seed
+    if seed is None:
+        seed = numpy.random.randint( 0, sys.maxint )
+    numpy.random.seed( seed )
+    print "random seed:", seed
+     
+    load_data = load_input_data( input_file )
+    env, task, net, learner, agent, experiment = create_environment( use_renderer, learn, load_data, inner_layers, bias_unit, batch, alpha )
+    
+    biasLayer = bool( net["bias"] != None )
+    layersDim = []    
+    for layer in net.modulesSorted:
+        layersDim.append( layer.dim )
+    if biasLayer:
+        layersDim.pop( 0 )
+
+    print "network:\n", net
+    print "network layers:", layersDim
+    print "network params size: %s" % len(net.params)
     
     plotTitle = "seed:0x%X s:%s b:%s bias:%s l:%s alpha:%s" % ( seed, steps, batch, biasLayer, layersDim, alpha )
+    
     print "metaparams:", plotTitle
     
     if usePlots:
-        plt.ion()
+#         plt.ion()
+        plt.ioff()
         plt.figure()
         pl = MultilinePlotter(autoscale=1.2, xlim=[0, 50], ylim=[0, 1])
         pl.setLineStyle(linewidth=2)
         pl.setLabels( x="step", y="batch rewards mean", title=plotTitle )
+        plt.show( block=False )
 
+    
     try:
-        episodes = 0
-        step = 0
-        
-        while step<steps:
-        #while True:
-            episodes += batch
-            step += 1
-            
-            reward = 0
-            if learn:
-                if use_renderer and (step % 50 == 0):
-                    ## demonstrate results
-                    prevRender = env.render
-                    env.render = True
-                    experiment.doEpisodes( 1 )
-                    env.render = prevRender
-                    experiment.doEpisodes( batch - 1 )
-                else:
-                    experiment.doEpisodes( batch )
-                
-                reward = mean( agent.learner._allEvaluations[-batch:] )           ## get mean of recent batch episodes
-            else:
-                experiment.doEpisodes( batch )
-                reward = mean( agent.history.getSumOverSequences('reward') )      ## get mean of recent batch episodes
-            
-            if usePlots:
-                pl.addData( 0, step, reward )
-                pl.update()
-                plt.pause(0.001)
-         
-    #         print "params:\n%s" % learner.current
-            print "step:", step, "reward: %s" % reward
+        perform_episodes( pl, steps, batch, env, experiment, agent, learn )
 
         execution_time = datetime.now() - start_time
-
+    
         print "duration: {}".format( execution_time )
         print "metaparams:", plotTitle
         print "done"
@@ -227,21 +213,55 @@ def main( seed=None, steps=200, batch=5, bias_unit=True, inner_layers=[], alpha=
         if usePlots:
             plt.ioff()
             plt.show()
-
+    
         if learn:
-            net._setParameters( learner.current )
-            save_params( net, learner, task, output_file )
+            save_params( net, learner, task, experiment, output_file )
 
     except KeyboardInterrupt:
         if learn:
-            net._setParameters( learner.current )
-            save_params( net, learner, task, output_file )
+            save_params( net, learner, task, experiment, output_file )
  
         if use_renderer:
             prevRender = env.render
             env.render = True
             experiment.doEpisodes( 1 )
             env.render = prevRender
+
+    
+def perform_episodes( pl, steps, batch, env, experiment, agent, learn ):
+    global episodes
+    global step
+    
+    use_renderer = env.render
+    
+#     while step<steps:
+    for _ in range(0, steps):
+        episodes += batch
+        step += 1
+        
+        reward = 0
+        if learn:
+            if use_renderer and (step % 50 == 0):
+                ## demonstrate results
+                prevRender = env.render
+                env.render = True
+                experiment.doEpisodes( 1 )
+                env.render = prevRender
+                experiment.doEpisodes( batch - 1 )
+            else:
+                experiment.doEpisodes( batch )
+            
+            reward = mean( agent.learner._allEvaluations[-batch:] )           ## get mean of recent batch episodes
+        else:
+            experiment.doEpisodes( batch )
+            reward = mean( agent.history.getSumOverSequences('reward') )      ## get mean of recent batch episodes
+        
+        if usePlots:
+            pl.addData( 0, step, reward )
+            pl.update()
+            process_events()
+     
+        print "step:", step, "reward: %s" % reward
 
 
 # ============================================================================
@@ -253,13 +273,17 @@ def boolean_string(s):
     return s == 'True'
 
 
+def int_hex_dec(x):
+    return int(x, 0)
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Acrobot solution')
     parser.add_argument( '-if',  '--input_file', action="store", type=str, default=None, help='Input file containing learned parameters' )
     parser.add_argument( '-of',  '--output_file', action="store", type=str, default=None, help='Output file containing learned parameters' )
     parser.add_argument( '-iof', '--input_output_file', action="store", type=str, default=None, help='Input and output file containing learned parameters' )
     parser.add_argument(         '--learn', action="store", type=boolean_string, default=True, help='Should proceed learn phase?' )
-    parser.add_argument(         '--seed', action="store", type=int, default=None, help='RNG seed' )
+    parser.add_argument(         '--seed', action="store", type=int_hex_dec, default=None, help='RNG seed (dec or hex)' )
     parser.add_argument( '-s',   '--steps', action="store", type=int, default=200, help='Steps' )
     parser.add_argument( '-b',   '--batch', action="store", type=int, default=10, help='Batch' )
     parser.add_argument(         '--bias', action="store", type=boolean_string, default=True, help='NN bias' )
