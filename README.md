@@ -129,6 +129,7 @@ Meta parameters:
 - learning rate: 0.6
 - learning steps: 600
 - batch episodes size: 10
+
 Run command: `python2 ./src/brainexercises/rl/ode/acrobot_pgpe.py --hidden_layers=4 --alpha=0.6 --steps=600 --batch=10 --seed=0x6EFDFC62FB1768AE`
 
 
