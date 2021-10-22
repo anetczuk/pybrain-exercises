@@ -56,6 +56,15 @@ Script alongside the environemnt installs proper *pybrain* and all it's dependen
 Starting environment after installation can be done by execution of script `venv/start.sh`. 
 
 
+## PyBrain conclusions
+
+Authors of library put a lot of involvement into the library. Unfortunately there are some issues:
+- `Reinforce` seems to be bogus, because it does not learn and calculates "nan" in case of zeroed parameters
+- there are code comments, that some learning algoeithms are unfinished, e.g. `GPOMDP`
+- library is not maintained (last commit on 2017 Dec 17)
+- persisting learning process is hard (simply running *pickle* on experiment objects does not work)
+
+
 ## Reinforcement learning environments preview
 
 [![shipsteer](doc/env/shipsteer-small.png "shipsteer")](doc/env/shipsteer-big.png)
@@ -95,6 +104,21 @@ Action: torque to add to arm in range [-1.0, 1.0]
 Output: reward - higher the arm, greater the reward and greater the torque, lower the reward
 
 Goal: get maximum reward within 1000 iterations
+
+
+## Solutions
+
+### acrobot
+
+[![acrobot PGPE](doc/solution/acrobot_pgpe.png "acrobot PGPE")](doc/solution/acrobot_pgpe-big.png)
+
+Meta parameters:
+- algorithm: *Policy Gradients with Parameter Exploration (PGPE)*
+- one hidden layer with 4 neurons and bias layer
+- learning rate: 0.6
+- learning steps: 600
+- batch episodes size: 10
+Run command: `python2 ./src/brainexercises/rl/ode/acrobot_pgpe.py --hidden_layers=4 --alpha=0.6 --steps=600 --batch=10 --seed=0x6EFDFC62FB1768AE`
 
 
 ## Alternative machine learning libraries
