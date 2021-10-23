@@ -50,7 +50,7 @@ TMP_DIR    = os.path.abspath( os.path.join( SRC_DIR, "..", "tmp" ) )
 
 def process_events():
     ### code taken from "matplotlib.pyplot.pause()"
-    interval = 0.001
+    interval = 0.01
     manager = plt._pylab_helpers.Gcf.get_active()
     if manager is not None:
         canvas = manager.canvas
@@ -59,35 +59,11 @@ def process_events():
             ## 'show()' causes plot windows to blink/gain focus
 #         show(block=False)
         canvas.start_event_loop(interval)
-    else:
-        time.sleep(interval)
+#     else:
+#         time.sleep(interval)
 
-
-def save_data( data, output_file ):
-    outPath = output_file
-    if outPath is None:
-        outPath = os.path.join( TMP_DIR, "current_pgpe.txt" )
-#     print '\nstoring params:', data
-    print 'storing params to:', outPath
-    
-    with open( outPath, 'wb' ) as fp:
-        pickle.dump( data, fp )
-    
-#     numpy.savetxt( outPath, data )
-
-
-def save_params( network, learner, task, experiment, output_file ):
-    taskEnv = task.env
-    task.env = None
-
-    learnEv = learner._BlackBoxOptimizer__evaluator
-    learner._BlackBoxOptimizer__evaluator = None            ## task
-     
-    data = { "experiment": experiment }
-    save_data( data, output_file )
-     
-    learner._BlackBoxOptimizer__evaluator = learnEv
-    task.env = taskEnv
+    ## handle connections
+    time.sleep(interval)
 
 
 def load_input_data( input_file ):
@@ -100,6 +76,34 @@ def load_input_data( input_file ):
     return load_data
 
 
+def save_data( data, output_file ):
+    outPath = output_file
+    if outPath is None:
+        outPath = os.path.join( TMP_DIR, "current_pgpe.txt" )
+#     print '\nstoring params:', data
+    print 'storing params to:', outPath
+    
+    with open( outPath, 'wb' ) as fp:
+        pickle.dump( data, fp )
+    
+
+def save_params( network, learner, task, experiment, output_file ):
+    taskEnv = task.env
+    task.env = None
+
+    learnEv = learner._BlackBoxOptimizer__evaluator
+    learner._BlackBoxOptimizer__evaluator = None
+
+    network._setParameters( learner.current )
+
+    data = { "network": network, "learner": learner }
+#     data = { "network": network, "learner": learner, "task": task }
+    save_data( data, output_file )
+     
+    learner._BlackBoxOptimizer__evaluator = learnEv
+    task.env = taskEnv
+
+
 def create_environment( use_renderer, learn, load_data, inner_layers, bias_unit, batch, alpha ):
     ## create task
     env = AcrobotEnvironment( renderer=use_renderer )
@@ -110,19 +114,25 @@ def create_environment( use_renderer, learn, load_data, inner_layers, bias_unit,
     ## slower rendering
     env.dt = 0.019
     
-    task = GradualRewardTask(env)
+    task = load_data.get("task")
+    if task is None:
+        task = GradualRewardTask(env)
+    else:
+        task.env = env
     
     ## create controller network
-    layers = [ task.outdim ] + inner_layers + [ task.indim ]
-    net = buildNetwork( *layers, bias=bias_unit, outputbias=bias_unit,
-                        hiddenclass=TanhLayer, outclass=TanhLayer )
+    net = load_data.get("network")
+    if net is None:
+        layers = [ task.outdim ] + inner_layers + [ task.indim ]
+        net = buildNetwork( *layers, bias=bias_unit, outputbias=bias_unit,
+                            hiddenclass=TanhLayer, outclass=TanhLayer )
 
-    # create experiment
-    experiment = load_data.get("experiment")
-    if experiment is None:
-        ## create agent
-        learner = None
-        if learn:
+    ## create agent
+    agent = None
+    learner = None
+    if learn:
+        learner = load_data.get("learner")
+        if learner is None:
             learner = PGPE( storeAllEvaluations = True )
         #     learner = FiniteDifferences( storeAllEvaluations = True )
             learner.batchSize = batch
@@ -134,21 +144,62 @@ def create_environment( use_renderer, learn, load_data, inner_layers, bias_unit,
                 learner.learningRate = alpha
         # #         learner.momentum = 0.9
         #         learner.momentum = 0.01
-            
-            print "learning params:", learner.rprop, learner.learningRate, learner.momentum
-            
-            agent = OptimizationAgent(net, learner)
-        else:
-            agent = LearningAgent(net, None)
         
-        experiment = EpisodicExperiment(task, agent)
+        print "learning params:", learner.rprop, learner.learningRate, learner.momentum
         
+        agent = OptimizationAgent( net, learner )
     else:
-        learner = experiment.optimizer
-        net._setParameters( learner._initEvaluable )
-        agent = OptimizationAgent(net, learner)
+        agent = LearningAgent( net, None )
 
+    # create experiment
+    experiment = EpisodicExperiment(task, agent)
+    
     return (env, task, net, learner, agent, experiment)
+
+
+def perform_episodes( pl, steps, batch, env, experiment, agent, learn, use_renderer ):
+    global episodes
+    global step
+    
+#     while step<steps:
+    for _ in range(0, steps):
+        episodes += batch
+        step += 1
+        
+        reward = 0
+        if learn:
+            if use_renderer and (step % 5 == 0):
+                ## demonstrate results
+                render_episode( env, experiment )
+                experiment.doEpisodes( batch - 1 )
+            else:
+                experiment.doEpisodes( batch )
+            
+            reward = mean( agent.learner._allEvaluations[-batch:] )           ## get mean of recent batch episodes
+        else:
+            experiment.doEpisodes( batch )
+            reward = mean( agent.history.getSumOverSequences('reward') )      ## get mean of recent batch episodes
+        
+        if usePlots:
+            pl.addData( 0, step, reward )
+            pl.update()
+            process_events()
+     
+        print "step:", step, "reward: %s" % reward
+
+
+def render_episode( env, experiment ):
+    learner = experiment.optimizer
+    
+    oldBatch = learner.batchSize
+    learner.batchSize = 1
+    
+    prevRender = env.render
+    env.render = True
+    experiment.doEpisodes( 1 )
+    env.render = prevRender
+    
+    learner.batchSize = oldBatch
 
 
 ## ===========================================================================
@@ -202,7 +253,7 @@ def main( seed=None, steps=200, batch=5, bias_unit=True, inner_layers=[], alpha=
 
     
     try:
-        perform_episodes( pl, steps, batch, env, experiment, agent, learn )
+        perform_episodes( pl, steps, batch, env, experiment, agent, learn, use_renderer )
 
         execution_time = datetime.now() - start_time
     
@@ -222,46 +273,7 @@ def main( seed=None, steps=200, batch=5, bias_unit=True, inner_layers=[], alpha=
             save_params( net, learner, task, experiment, output_file )
  
         if use_renderer:
-            prevRender = env.render
-            env.render = True
-            experiment.doEpisodes( 1 )
-            env.render = prevRender
-
-    
-def perform_episodes( pl, steps, batch, env, experiment, agent, learn ):
-    global episodes
-    global step
-    
-    use_renderer = env.render
-    
-#     while step<steps:
-    for _ in range(0, steps):
-        episodes += batch
-        step += 1
-        
-        reward = 0
-        if learn:
-            if use_renderer and (step % 50 == 0):
-                ## demonstrate results
-                prevRender = env.render
-                env.render = True
-                experiment.doEpisodes( 1 )
-                env.render = prevRender
-                experiment.doEpisodes( batch - 1 )
-            else:
-                experiment.doEpisodes( batch )
-            
-            reward = mean( agent.learner._allEvaluations[-batch:] )           ## get mean of recent batch episodes
-        else:
-            experiment.doEpisodes( batch )
-            reward = mean( agent.history.getSumOverSequences('reward') )      ## get mean of recent batch episodes
-        
-        if usePlots:
-            pl.addData( 0, step, reward )
-            pl.update()
-            process_events()
-     
-        print "step:", step, "reward: %s" % reward
+            render_episode( env, experiment )
 
 
 # ============================================================================
