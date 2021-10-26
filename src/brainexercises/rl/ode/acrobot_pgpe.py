@@ -112,7 +112,8 @@ def create_environment( use_renderer, learn, load_data, inner_layers, bias_unit,
     else:
         env.render = use_renderer
     ## slower rendering
-    env.dt = 0.019
+    env.dt = 0.025
+#     env.dt = 0.019
     
     task = load_data.get("task")
     if task is None:
