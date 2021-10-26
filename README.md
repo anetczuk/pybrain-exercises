@@ -122,7 +122,7 @@ Goal: get maximum reward within 1000 iterations
 ### <a name="solution_acrobot"></a>acrobot
 
 [![acrobot PGPE](doc/solution/acrobot_pgpe-small.png "acrobot PGPE")](doc/solution/acrobot_pgpe-big.png)
-[![acrobot PGPE](doc/solution/acrobot_pgpe.gif "acrobot PGPE")](doc/solution/acrobot_pgpe.mp4)
+[![acrobot PGPE](doc/solution/acrobot_pgpe-small.gif "acrobot PGPE")](doc/solution/acrobot_pgpe.mp4)
 
 Meta parameters:
 - algorithm: *Policy Gradients with Parameter Exploration (PGPE)*
