@@ -3,8 +3,6 @@
 
 from __future__ import print_function
 
-import sys
-import time
 import numpy
 from scipy import mean
 from matplotlib import pyplot as plt
@@ -14,28 +12,8 @@ from pybrain.rl.agents import LearningAgent
 from pybrain.rl.learners import SARSA
 # from pybrain.rl.learners import Q
 # from pybrain.rl.learners import QLambda
-from pybrain.rl.learners.valuebased import ActionValueTable
+from pybrain.rl.learners.valuebased import ActionValueNetwork, NFQ
 from pybrain.rl.experiments import EpisodicExperiment
-
-from pybrain.tools.plotting import MultilinePlotter
-
-
-def process_events():
-    ### code taken from "matplotlib.pyplot.pause()"
-    interval = 0.01
-    manager = plt._pylab_helpers.Gcf.get_active()
-    if manager is not None:
-        canvas = manager.canvas
-        if canvas.figure.stale:
-            canvas.draw_idle()
-            ## 'show()' causes plot windows to blink/gain focus
-#         show(block=False)
-        canvas.start_event_loop(interval)
-#     else:
-#         time.sleep(interval)
-
-    ## handle connections
-    time.sleep(interval)
 
 
 def create_bins_inf( minValue, maxValue, binNum ):
@@ -90,13 +68,13 @@ class StateConverter():
 
 class IntegerLearningAgent( LearningAgent ):
     
-    def __init__(self, stateConverter, module, learner = None):
-        LearningAgent.__init__(self, module, learner)
-        self.converter = stateConverter
-    
-    def integrateObservation(self, obs):
-        bin = self.converter.getBinByList( obs )
-        return LearningAgent.integrateObservation( self, [bin] )
+#     def __init__(self, stateConverter, module, learner = None):
+#         LearningAgent.__init__(self, module, learner)
+#         self.converter = stateConverter
+#     
+#     def integrateObservation(self, obs):
+#         bin = self.converter.getBinByList( obs )
+#         return LearningAgent.integrateObservation( self, [bin] )
 
     def getAction(self):
         action = LearningAgent.getAction(self)
@@ -106,9 +84,8 @@ class IntegerLearningAgent( LearningAgent ):
 ## ============================================================================
 
 
-seed = numpy.random.randint( 0, sys.maxint )
-numpy.random.seed( seed )
-print( "random seed:", seed )
+# numpy.random.seed( 112 )
+# numpy.random.seed( 114 )
 
 
 plotProgress = True
@@ -123,25 +100,22 @@ plotProgress = True
 task = MountainCar()
  
 
-stateConverter = StateConverter( 16, 8 )
+# binsNum = 8
+# stateConverter = StateConverter( binsNum, binsNum )
 
 ## create value table and initialize with ones
-table = ActionValueTable( stateConverter.numStates, stateConverter.numActions )
-table.initialize( 1.0 )
+module = ActionValueNetwork( 3, 3 )
+# module = ActionValueNetwork( stateConverter.numStates, stateConverter.numActions )
 
-## create agent with controller and learner - use SARSA(), Q() or QLambda() here
-alpha = 0.2
-gamma = 0.499
-learner = SARSA( alpha, gamma )
-# learner = QLambda()
-# learner = Q()
+learner = NFQ()
+learner.explorer.epsilon = 0.4
 
 ## standard exploration is e-greedy, but a different type can be chosen as well
 # learner.explorer = BoltzmannExplorer()
 
 # create agent
-agent = IntegerLearningAgent( stateConverter, table, learner )
-# agent = LearningAgent(table, learner)
+agent = IntegerLearningAgent( module, learner )
+# agent = LearningAgent( module, learner )
 
 ## create experiment
 experiment = EpisodicExperiment( task, agent )
@@ -152,51 +126,39 @@ if plotProgress:
     
     plt.ion()
     
-#     pl = MultilinePlotter(autoscale=1.2, xlim=[0, 50], ylim=[0, 1])
-#     pl.setLineStyle(linewidth=2)
-#     pl.setLabels( x="episode", y="steps required", title="mountain car" )
-#     plt.show( block=False )
-
     def plotPerformance(values, fig):
         plt.figure(fig.number)
         plt.clf()
-        plt.plot(values)
-#         plt.plot(values, 'o-')
+        plt.plot(values, 'o-')
         plt.gcf().canvas.draw()
-        process_events()
+        ## Without the next line, the pyplot plot won't actually show up.
+        plt.pause(0.001)
 
-    pf_fig = plt.figure(2)
-    
+    pf_fig = plt.figure()
 
-EPISODES = 5000
 
-best = 999999
+EPISODES = 200
     
 for ep in range(1, EPISODES):
     ## execute and learn
     rewards = experiment.doEpisodes(1)
-    agent.learn()
+    agent.learn(1)
     agent.reset()
+    
+#     print( "params:", module.network.params )
     
     ## plot data
     meanReward = mean([mean(x) for x in rewards])
 
     steps = len(rewards[0])
-    best = min( best, steps )
  
     if plotProgress:
         performance.append( meanReward )
         #     performance.append( steps )
         if ep % 20 == 0:
             plotPerformance( performance, pf_fig )
-        
-#         position = task.state[0]
-#         pl.addData( 0, ep, steps )
-#         pl.update()
-#         process_events()
 
-    if meanReward > 0:
-        print( "episode:", ep, "mean reward:", meanReward, "steps:", steps, "best:", best )
+    print( "episode:", ep, "mean reward:", meanReward, "steps:", steps )
 
 
 if plotProgress:

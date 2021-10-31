@@ -131,6 +131,8 @@ Meta parameters:
 - learning steps: 600
 - batch episodes size: 10
 
+Exactly the same results can be achieved by using following seed: `0x6EFDFC62FB1768AE`
+
 Run command: `python2 ./src/brainexercises/rl/ode/acrobot_pgpe.py --hidden_layers=4 --alpha=0.6 --steps=600 --batch=10 --seed=0x6EFDFC62FB1768AE`
 
 
